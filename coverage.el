@@ -50,6 +50,7 @@
 (require 'ov)
 (require 'cl-lib)
 (require 'timer)
+(require 'coverage-python)
 (autoload 'vc-git-root "vc-git")
 
 (defgroup coverage nil
@@ -93,7 +94,7 @@ obtain coverage results.
 
 If nil, look for a /coverage directory immediately under the Git
 root directory."
-  :type '(choice (const :tag "Default (vc-git-root/coverage)" nil)
+  :type '(choice (const :tag "Default (vc-git-root)" nil)
                  (string :tag "Path to coverage diretory"))
   :group 'coverage)
 
@@ -133,10 +134,10 @@ root directory."
 (defun coverage-dir-for-file (filename)
   "Guess the coverage directory of the given FILENAME.
 
-Use `coverage-dir' if set, or fall back to /coverage under Git
+Use `coverage-dir' if set, or fall back to ./ under Git
 root."
   (or coverage-dir
-      (concat (vc-git-root filename) "coverage/")))
+      (vc-git-root filename)))
 
 (defun coverage-get-json-from-file (filepath)
   "Return alist of the json resultset at FILEPATH."
@@ -146,14 +147,18 @@ root."
 
 (defun coverage-get-results-for-file (target-path result-path)
   "Return coverage for the file at TARGET-PATH from RESULT-PATH."
-  (cl-coerce (cdr
-              (car
-               (cl-remove-if-not 'identity
-                                 (mapcar (lambda (l)
-                                           (assoc-string target-path
-                                                         (assoc 'coverage l)))
-                                         (coverage-get-json-from-file result-path)))))
-             'list))
+  (if (equal major-mode 'python-mode)
+      (coverage-get-results-for-python-file target-path
+                                            (coverage-python-json result-path))
+    (cl-coerce (cdr
+                (car
+                 (cl-remove-if-not 'identity
+                                   (mapcar (lambda (l)
+                                             (assoc-string target-path
+                                                           (assoc 'coverage l)))
+                                           (coverage-get-json-from-file result-path)))))
+               'list))
+  )
 
 (defun coverage-get-results-for-current-buffer ()
   "Return a list of coverage results for the current buffer."
@@ -162,12 +167,16 @@ root."
 
 (defun coverage-get-timestamp-for-results (filepath)
   "Return the time that results at FILEPATH were last updated."
-  (with-temp-buffer
-    (insert-file-contents filepath)
-    (goto-char (point-max))
-    (re-search-backward "\"timestamp\": *[0-9]+")
-    (re-search-forward ": *")
-    (current-word)))
+  (if (equal major-mode 'python-mode)
+      (gethash "timestamp" (gethash "meta" (coverage-python-json filepath)))
+    ((with-temp-buffer
+       (insert-file-contents filepath)
+       (goto-char (point-max))
+       (re-search-backward "\"timestamp\": *[0-9]+")
+       (re-search-forward ": *")
+       (current-word))))
+  )
+
 
 (defun coverage-get-timestamp-for-current-buffer ()
   "Return result timestamp for the current buffer."
